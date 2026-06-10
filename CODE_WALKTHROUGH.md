@@ -1,7 +1,7 @@
 # How the Patch Works
 
 This is a walkthrough of the two assembly files that make up the patch. If you
-want to understand what the code is actually doing and why, read this first.
+want to understand what the code is doing and why, read this first.
 
 ---
 
@@ -14,16 +14,26 @@ language card RAM, writes a three-byte redirect at $EFAE in that copy, and switc
 the machine to read from the language card instead of ROM. After that, every call
 to RND() hits the redirect and jumps to the replacement.
 
-The replacement does one new thing: on the first positive RND(1) call after a cold
-boot, it reads the monitor's timing counter at $4E and $4F and mixes those values
-into the seed before running the generator. Every other call -- RND(-n), RND(0),
-and every subsequent RND(1) -- runs the original Applesoft code unchanged.
+The replacement does one thing differently from the original: on every positive
+RND(1) call, it reads the monitor's timing counter at $4E and $4F and mixes those
+values into the seed before running the generator. RND(-n) and RND(0) run the original Applesoft code without modification.
 
 ---
 
-## patch.s -- The replacement RND() function
+## A note on $4E and $4F
 
-Loads at $0800. This is what runs every time your program calls RND().
+The KEYIN routine in the monitor ROM increments $4E on every iteration of its
+keyboard polling loop, not on every keypress. The counter advances thousands of
+times per second while the machine is sitting at a prompt. A keypress just exits
+the loop. By the time you have typed a few commands and called RND(), the counter
+reflects how long the machine spent in that polling loop, which varies from session
+to session based on your timing. That variation is the entropy.
+
+---
+
+## patch_lc.s: The replacement RND() function
+
+Loads at $0800. This runs every time your program calls RND().
 
 ### Checking the argument
 
@@ -33,14 +43,14 @@ TAX
 BMI DO_SWAP
 ```
 
-SIGN is Applesoft's own routine at $EB82. It reads whatever value is sitting in
-the floating point accumulator (FAC) -- the argument you passed to RND() -- and
-returns -1, 0, or +1 in the A register based on its sign. We save that result in
-X because we need it in a moment.
+SIGN is Applesoft's own routine at $EB82. It reads whatever value is in the
+floating point accumulator (FAC), the argument you passed to RND(), and
+returns -1, 0, or +1 in the A register. We save that in X because we need it
+in a moment.
 
 If the argument was negative, BMI branches immediately to DO_SWAP. This is the
-RND(-n) seeding path, completely unchanged from original Applesoft. The argument
-in FAC gets byte-swapped, normalized, and stored as the new seed.
+RND(-n) seeding path. The argument in FAC gets byte-swapped, normalized, and
+stored as the new seed. No changes to this behavior.
 
 ### Loading the current seed
 
@@ -52,17 +62,13 @@ TXA
 BEQ DO_RETURN
 ```
 
-RNDSEED is the 5-byte floating point seed stored at $C9 through $CD. We load it
-into FAC. Then we recall the sign from X. If it was zero -- meaning you called
-RND(0) -- we branch to DO_RETURN and give back whatever is currently in FAC.
-That is the last generated value, same behavior as original.
+RNDSEED is the 5-byte floating point seed at $C9 through $CD. We load it into
+FAC. If the argument was zero (meaning you called RND(0)), we branch to
+DO_RETURN and give back whatever is in FAC. That is the last generated value.
 
-### The new part: first call seeding
+### Mixing in $4E and $4F
 
 ```asm
-LDA INIT_FLAG
-BNE DO_LCG
-
 LDA RNDL
 EOR RNDSEED_M3
 STA RNDSEED_M3
@@ -70,53 +76,32 @@ LDA RNDH
 EOR RNDSEED_M4
 STA RNDSEED_M4
 
-LDA #$FF
-STA INIT_FLAG
-
 LDA #<RNDSEED
 LDY #>RNDSEED
 JSR LOAD_FAC_YA
 ```
 
-INIT_FLAG lives at $CE, the byte immediately after RNDSEED in zero page. In
-emulation, RAM is typically initialized to zero on cold boot, so $CE reliably
-starts clear. On real hardware, DRAM cells drain partially between power cycles
-and zero page tends to land near zero after a normal power-off, but this is not
-guaranteed. In practice the patch works correctly on real hardware cold boots.
-The worst case if $CE happens to be non-zero is that the seeding step is skipped
-for that session and the machine falls back to the original fixed seed -- no crash,
-just no seeding that boot. Once we have seeded from $4E/$4F, we set INIT_FLAG to
-$FF so this only runs once per session.
+On every positive call, we read RNDL ($4E) and RNDH ($4F) and XOR each byte
+into the corresponding mantissa byte of RNDSEED. XOR modifies the seed value
+without invalidating the floating point format. We then reload the modified
+seed into FAC before running the LCG.
 
-If INIT_FLAG is already $FF, we skip straight to DO_LCG. If it is zero, this
-is the first positive RND call after boot. We read RNDL ($4E) and RNDH ($4F)
--- the monitor's timing counter -- and XOR each byte into the corresponding
-mantissa byte of RNDSEED. XOR is safe here because it changes the value of
-the seed without invalidating the floating point format. We then reload the
-modified seed into FAC and set INIT_FLAG to $FF.
-
-The value in $4E and $4F reflects how long the machine has been sitting at a
-prompt waiting for you to type. KEYIN increments $4E on every loop iteration,
-thousands of times per second. By the time you have typed three commands and
-pressed return, those counters are somewhere completely different from where
-they were on any previous boot. That variation is the entropy.
+This happens on every positive call. The counter reflects current timing at
+the moment of each call. In interactive use with keyboard activity between
+calls, the values will vary. In a tight loop with no keyboard activity, the
+counter may not change much between calls since KEYIN only runs while waiting
+for input.
 
 ### The LCG
 
 ```asm
-LDA #<CON_RND_1
-LDY #>CON_RND_1
-JSR FMULT
-LDA #<CON_RND_2
-LDY #>CON_RND_2
-JSR FADD
+JSR FMULT   ; FAC = FAC * CON_RND_1
+JSR FADD    ; FAC = FAC + CON_RND_2
 ```
 
-The original Applesoft linear congruential generator, preserved exactly. The
-constants are still the broken ones from 1978. This is intentional. Changing
-the algorithm would break programs that depend on RND(-n) producing a specific
-sequence from a known seed. The patch changes the default starting point, not
-the algorithm.
+The original Applesoft linear congruential generator, unchanged. The constants
+are still the broken ones from 1978. Changing them would break programs that
+depend on RND(-n) producing a specific sequence from a known seed.
 
 ### The byte swap and return
 
@@ -137,17 +122,16 @@ LDY #>RNDSEED
 JMP STORE_FAC_YX
 ```
 
-Verbatim from the original Applesoft .1 label at $EFCC. The middle two bytes
-of FAC get swapped, the result is forced positive, the exponent is set to $80
-to produce a value less than 1.0, and the whole thing is normalized and stored
-back to RNDSEED. STORE_FAC_YX handles the return to the caller.
+Verbatim from the original Applesoft .1 label at $EFCC. Swap the middle two
+bytes of FAC, force the result positive, set the exponent to $80 to produce
+a value less than 1.0, normalize, and store back to RNDSEED. STORE_FAC_YX
+handles the return to the caller.
 
 ---
 
-## lc_loader.s -- The language card loader
+## lc_loader.s: The language card loader
 
-Loads at $0900. Run once to apply the patch. You don't need to run it again
-unless you cold boot.
+Loads at $0900. Run once to apply the patch. Reapply after every cold boot.
 
 ### Enabling LC write
 
@@ -156,11 +140,9 @@ LDA $C081
 LDA $C081
 ```
 
-The Apple II language card is controlled by soft switches at $C080 through
-$C08F. Reading $C081 twice sets the write latch: after these two reads, writes
-to $D000-$FFFF go to language card RAM while reads still come from ROM. The
-double-read requirement is intentional hardware design to prevent accidental
-activation.
+Reading $C081 twice sets the write latch. After this, writes to $D000-$FFFF
+go to language card RAM while reads still come from ROM. The double-read
+requirement is intentional hardware design to prevent accidental activation.
 
 ### Copying ROM to the language card
 
@@ -178,24 +160,18 @@ DST_STA: STA $D000,X
     BNE COPY_PAGE
 ```
 
-This copies 48 pages (12,288 bytes) from $D000 through $FFFF -- all of
-Applesoft plus the monitor ROM -- from ROM into language card RAM.
+This copies 48 pages (12,288 bytes) from $D000 through $FFFF, covering all of Applesoft and the monitor ROM.
 
-The trick here is self-modifying code. INC SRC_LDA+2 increments the high byte
-of the LDA instruction's operand address. The first time through the outer loop,
-LDA reads from $D0xx. After INC, it reads from $D1xx. Then $D2xx, and so on
-through $FFxx. The same happens for the STA. This walks through the entire
-address range one page at a time without needing a zero page pointer.
+The trick is self-modifying code. INC SRC_LDA+2 increments the high byte of
+the LDA instruction's operand. The first time through the outer loop, LDA reads
+from $D0xx. After the increment it reads from $D1xx, then $D2xx, through $FFxx.
+The STA works the same way. This walks through all 48 pages without needing a
+zero page pointer.
 
-LDX starts at zero. The inner loop runs 256 times (INX from 0 to 255, overflow
-to 0 triggers BNE to fall through). LDY starts at $30 (48 decimal). DEY counts
-down the outer loop. When both wrap to zero the copy is done.
-
-We copy all of $D000-$FFFF rather than just the Applesoft RND area because
-switching the language card to read mode affects the entire $D000-$FFFF range.
-If only $E000-$FFFF were copied, the $D000-$DFFF portion of Applesoft in
-language card RAM would contain garbage and the machine would crash the moment
-it tried to execute any code from there.
+We copy all of $D000-$FFFF rather than just the area around $EFAE because
+switching the language card to read mode affects the entire range. If only
+part of it were copied, Applesoft would try to execute from uninitialized RAM
+the moment it returned from the loader.
 
 ### Writing the hook
 
@@ -208,23 +184,10 @@ LDA #$08
 STA $EFB0
 ```
 
-LC write is still enabled at this point, so these stores go to language card
-RAM, not ROM. $4C $00 $08 is JMP $0800 in 6502 machine code. This replaces
-the first three bytes of the RND function in the language card copy -- the
-original JSR SIGN -- with a jump to our replacement.
-
-The original ROM is untouched.
-
-### Clearing the init flag
-
-```asm
-LDA #$00
-STA $CE
-```
-
-INIT_FLAG is cleared so the first RND(1) call after the loader runs will
-seed from $4E/$4F. Without this step, if $CE happened to contain $FF from
-a previous session, the seeding would be skipped.
+LC write is still active here, so these stores go to language card RAM. $4C
+$00 $08 is JMP $0800 in 6502 machine code. This replaces the first three bytes
+of the RND function in the LC copy (the original JSR SIGN) with a jump to
+our replacement. The original ROM is untouched.
 
 ### Switching to language card read mode
 
@@ -234,35 +197,28 @@ RTS
 ```
 
 A single read of $C080 clears the write latch and switches reads from
-$D000-$FFFF to come from language card RAM instead of ROM. From this point
-forward, Applesoft runs from the patched copy. RND() at $EFAE now contains
-JMP $0800 instead of JSR SIGN.
-
-RTS returns to whatever called the loader -- typically Applesoft's CALL
-handler -- and from there back to the DOS prompt. The patch is active for
-the rest of the session.
+$D000-$FFFF to come from language card RAM. From this point, Applesoft runs
+from the patched copy. RND() at $EFAE now contains JMP $0800.
 
 ---
 
 ## What was not changed
 
-RND(-n) behavior is preserved. The BMI DO_SWAP branch fires before any of
-the new code runs, so negative arguments go through the original byte swap
-path unmodified. Programs that rely on RND(-n) for reproducible sequences
-will work exactly as they always have.
+RND(-n) takes the BMI DO_SWAP branch before any of the new code runs. The
+negative argument path goes through the original byte swap unchanged. Programs
+that rely on RND(-n) for reproducible sequences work the same way they always have.
 
-RND(0) behavior is preserved. The BEQ DO_RETURN branch fires before the
-INIT_FLAG check.
+RND(0) takes the BEQ DO_RETURN branch before the $4E/$4F mixing code runs.
 
-The LCG algorithm itself is preserved. The broken constants, the floating
-point arithmetic, the byte swap -- all of it is there. The patch changes
-where the sequence starts, not how it runs.
+The LCG algorithm itself is unchanged. The broken constants, the floating point
+arithmetic, the byte swap, all of it is still there. The patch changes what
+the seed contains before the LCG runs, not how the LCG runs.
 
 ---
 
 ## Verified in AppleWin 1.32.00
 
 Cold boot without patch: PRINT RND(1) returns .973136996 on every boot.
-Cold boot with patch applied: PEEK(206) returns 255 after first RND(1)
-call, confirming the seeding path executed. Value differs across sessions.
+Cold boot with patch applied: value differs across sessions.
 RND(-1) behavior identical with and without patch.
+PEEK(78) and PEEK(79) values at time of each RND(1) call influence the result.
