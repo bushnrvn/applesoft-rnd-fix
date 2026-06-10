@@ -14,8 +14,8 @@ language card RAM, writes a three-byte redirect at $EFAE in that copy, and switc
 the machine to read from the language card instead of ROM. After that, every call
 to RND() hits the redirect and jumps to the replacement.
 
-The replacement does one thing differently from the original: on every positive
-RND(1) call, it reads the monitor's timing counter at $4E and $4F and mixes those
+On every positive
+RND(1) call, the patch reads the monitor's timing counter at $4E and $4F and mixes those
 values into the seed before running the generator. RND(-n) and RND(0) run the original Applesoft code without modification.
 
 ---
@@ -45,8 +45,7 @@ BMI DO_SWAP
 
 SIGN is Applesoft's own routine at $EB82. It reads whatever value is in the
 floating point accumulator (FAC), the argument you passed to RND(), and
-returns -1, 0, or +1 in the A register. We save that in X because we need it
-in a moment.
+returns -1, 0, or +1 in the A register. Next save that in X.
 
 If the argument was negative, BMI branches immediately to DO_SWAP. This is the
 RND(-n) seeding path. The argument in FAC gets byte-swapped, normalized, and
@@ -62,8 +61,8 @@ TXA
 BEQ DO_RETURN
 ```
 
-RNDSEED is the 5-byte floating point seed at $C9 through $CD. We load it into
-FAC. If the argument was zero (meaning you called RND(0)), we branch to
+RNDSEED is the 5-byte floating point seed at $C9 through $CD. First load it into
+FAC. If the argument was zero, branch to
 DO_RETURN and give back whatever is in FAC. That is the last generated value.
 
 ### Mixing in $4E and $4F
@@ -81,12 +80,12 @@ LDY #>RNDSEED
 JSR LOAD_FAC_YA
 ```
 
-On every positive call, we read RNDL ($4E) and RNDH ($4F) and XOR each byte
+If RND() is positive, read RNDL ($4E) and RNDH ($4F) and XOR each byte
 into the corresponding mantissa byte of RNDSEED. XOR modifies the seed value
-without invalidating the floating point format. We then reload the modified
+without invalidating the floating point format. Then reload the modified
 seed into FAC before running the LCG.
 
-This happens on every positive call. The counter reflects current timing at
+The counter reflects current timing at
 the moment of each call. In interactive use with keyboard activity between
 calls, the values will vary. In a tight loop with no keyboard activity, the
 counter may not change much between calls since KEYIN only runs while waiting
@@ -99,8 +98,7 @@ JSR FMULT   ; FAC = FAC * CON_RND_1
 JSR FADD    ; FAC = FAC + CON_RND_2
 ```
 
-The original Applesoft linear congruential generator, unchanged. The constants
-are still the broken ones from 1978. Changing them would break programs that
+The original Applesoft linear congruential generator. Changing the original constants would break programs that
 depend on RND(-n) producing a specific sequence from a known seed.
 
 ### The byte swap and return
@@ -162,13 +160,13 @@ DST_STA: STA $D000,X
 
 This copies 48 pages (12,288 bytes) from $D000 through $FFFF, covering all of Applesoft and the monitor ROM.
 
-The trick is self-modifying code. INC SRC_LDA+2 increments the high byte of
+INC SRC_LDA+2 increments the high byte of
 the LDA instruction's operand. The first time through the outer loop, LDA reads
 from $D0xx. After the increment it reads from $D1xx, then $D2xx, through $FFxx.
 The STA works the same way. This walks through all 48 pages without needing a
 zero page pointer.
 
-We copy all of $D000-$FFFF rather than just the area around $EFAE because
+The patch copies all of $D000-$FFFF rather than just the area around $EFAE because
 switching the language card to read mode affects the entire range. If only
 part of it were copied, Applesoft would try to execute from uninitialized RAM
 the moment it returned from the loader.
@@ -184,10 +182,10 @@ LDA #$08
 STA $EFB0
 ```
 
-LC write is still active here, so these stores go to language card RAM. $4C
+LC write is still active here, so these STA go to language card RAM. $4C
 $00 $08 is JMP $0800 in 6502 machine code. This replaces the first three bytes
-of the RND function in the LC copy (the original JSR SIGN) with a jump to
-our replacement. The original ROM is untouched.
+of the RND function in the LC copy with a jump to
+the replacement. 
 
 ### Switching to language card read mode
 
@@ -210,9 +208,7 @@ that rely on RND(-n) for reproducible sequences work the same way they always ha
 
 RND(0) takes the BEQ DO_RETURN branch before the $4E/$4F mixing code runs.
 
-The LCG algorithm itself is unchanged. The broken constants, the floating point
-arithmetic, the byte swap, all of it is still there. The patch changes what
-the seed contains before the LCG runs, not how the LCG runs.
+The LCG algorithm itself is unchanged.
 
 ---
 
