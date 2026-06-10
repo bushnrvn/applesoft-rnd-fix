@@ -6,3 +6,4 @@ Currently, patch_lc.bin is the only available version. This must be loaded via l
 
 Requires an Apple II or II+ with a 16K language card installed in slot 0, or any Apple IIe, IIc, or IIc+. Apple IIgs compatibility is untested.
 
+[Research and background](https://codeberg.org/bushnrvn/loaded-dice-vcfmw2026)
