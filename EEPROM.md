@@ -1,4 +1,7 @@
-# EEPROM Patch (Permanent)
+# EEPROM Patch (Permanent - Perform At Your Own Risk)
+
+
+
 
 This approach burns a patched Applesoft ROM to an EEPROM and installs it in the
 Apple II. The patch is permanent and requires no software to activate. RND() seeds
