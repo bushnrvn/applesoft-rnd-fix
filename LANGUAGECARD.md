@@ -5,8 +5,8 @@ modification required. The patch must be reapplied after every cold boot.
 
 ## Requirements
 
-- Apple II+ or IIe with a 16K language card in slot 0
-- DOS 3.3 or ProDOS
+- Apple II+ or IIe with a 16K language card in slot 0, any IIc or IIc+
+- DOS 3.3
 - The built binaries: `patch_lc.bin` and `lc_loader.bin`
 
 ## Setup
