@@ -19,14 +19,4 @@ The replacement code (patch.bin) must also be present at $0800 in RAM or burned
 into unused ROM space. The language card approach (LANGUAGECARD.md) demonstrates
 the runtime equivalent.
 
-## If you want to attempt this now
 
-The Applesoft ROM occupies $D000-$F7FF on the Apple II+. Compatible EEPROM chips
-include the 28C256 (32KB) with appropriate address mapping, or the 2764 (8KB) for
-systems using individual ROM chips.
-
-Verify your machine's ROM configuration before attempting to replace chips. The
-Apple IIe uses a different ROM layout than the Apple II+.
-
-Open an issue if you have successfully burned and tested this patch -- your
-experience will help complete this documentation.
