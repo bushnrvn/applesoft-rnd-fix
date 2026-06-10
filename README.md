@@ -6,4 +6,7 @@ Currently, patch_lc.bin is the only available version. This must be loaded via l
 
 Requires an Apple II or II+ with a 16K language card installed in slot 0, or any Apple IIe, IIc, or IIc+. Apple IIgs compatibility is untested.
 
+Details on Language Card use are here: [Language Card Instructions](https://codeberg.org/bushnrvn/applesoft-rnd-fix/src/branch/main/LANGUAGECARD.md#language-card-patch-runtime)
+
+Accompanying research and background are here:
 [Research and background](https://codeberg.org/bushnrvn/loaded-dice-vcfmw2026)
