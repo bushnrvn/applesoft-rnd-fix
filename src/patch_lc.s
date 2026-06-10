@@ -1,29 +1,20 @@
-; patch.s
-; Applesoft BASIC RND() entropy patch
+; patch_lc.s
+; Applesoft BASIC RND() entropy patch -- Language Card version
 ;
-; Seeds RND() from the monitor's RNDL/RNDH counter ($4E/$4F)
-; on the first positive call after cold boot.
+; Replacement for Applesoft RND() at $EFAE. On every positive RND(1) call,
+; mixes the monitor's RNDL/RNDH counter ($4E/$4F) into RNDSEED before
+; running the existing LCG. This is the entropy source the platform was
+; designed for, used correctly by Integer BASIC, and ignored by Applesoft.
 ;
-; Background:
-;   Applesoft's RND() starts from a fixed seed at $C9-$CD on every
-;   cold boot, producing the same sequence every session. The Apple II
-;   monitor maintains an entropy counter at $4E (RNDL) and $4F (RNDH)
-;   that is incremented continuously by the KEYIN routine. Integer BASIC
-;   read this counter correctly. Applesoft ignores it. This patch
-;   restores the connection.
-;
-; Strategy:
-;   Replace the JSR SIGN entry instruction at $EFAE with a JMP to this
-;   patch routine. On the first positive RND() call, XOR the RNDL/RNDH
-;   values into the RNDSEED mantissa bytes before running the LCG.
-;   All subsequent calls and all negative/zero argument behavior are
-;   preserved unchanged.
+; RND(-n) and RND(0) behavior are preserved unchanged.
 ;
 ; References:
+;   S-C DocuMentor (txbobsc.com/scsc/scdocumentor/EE8D.html)
 ;   Apple Assembly Line Vol.4 No.8, May 1984 (txbobsc.com/aal/1984/aal8405.html)
 ;   Aldridge, J.W., Behavior Research Methods, 1987, 19(4), 397-399
-;   S-C DocuMentor (txbobsc.com/scsc/scdocumentor/EE8D.html)
 ;   Integer BASIC disassembly (6502disassembly.com/a2-rom/IntegerBASIC.html)
+;
+; Verified working: AppleWin 1.32.00, Apple II+ 48K + 16K language card
 ;
 ; License: MIT
 ; Author: Jeff Robison, 2026
@@ -31,16 +22,9 @@
 .setcpu "6502"
 .include "applesoft.inc"
 
-; Patch loads to page 8 ($0800) -- typically free in Apple II memory
-; For language card use: apply ROM_PATCH bytes to LC RAM at $EFAE
-; For EEPROM use: burn ROM_PATCH bytes at offset $EFAE in ROM image
 PATCH_ADDR = $0800     ; Language card version loads here
 
 .org PATCH_ADDR
-
-; ============================================================
-; PATCH_RND -- replacement for Applesoft RND() at $EFAE
-; ============================================================
 
 PATCH_RND:
 
@@ -61,13 +45,8 @@ PATCH_RND:
     TXA
     BEQ DO_RETURN
 
-    ; Positive argument: check if we have seeded from RNDL/RNDH yet
-    LDA INIT_FLAG
-    BNE DO_LCG
-
-    ; First positive call -- seed RNDSEED from RNDL/RNDH
-    ; XOR into mantissa bytes preserves float validity
-    ; and mixes in the KEYIN timing entropy
+    ; Positive argument: mix RNDL/RNDH into RNDSEED on every call
+    ; XOR preserves float validity and mixes in KEYIN timing entropy
     LDA RNDL
     EOR RNDSEED_M3      ; mix low byte into mantissa byte 3
     STA RNDSEED_M3
@@ -75,20 +54,13 @@ PATCH_RND:
     EOR RNDSEED_M4      ; mix high byte into mantissa byte 4
     STA RNDSEED_M4
 
-    ; Mark initialized
-    LDA #$FF
-    STA INIT_FLAG
-
     ; Reload modified seed into FAC
     LDA #<RNDSEED
     LDY #>RNDSEED
     JSR LOAD_FAC_YA
 
 DO_LCG:
-    ; Run LCG (same constants as original -- intentionally preserved)
-    ; The constants are documented as truncated and poorly chosen
-    ; but are kept here for compatibility with programs that depend
-    ; on specific sequence properties when using RND(-n) seeding
+    ; Run LCG (same constants as original -- preserved for compatibility)
     LDA #<CON_RND_1
     LDY #>CON_RND_1
     JSR FMULT
@@ -98,7 +70,6 @@ DO_LCG:
 
 DO_SWAP:
     ; Byte swap FAC+1 and FAC+4 (original .1 label at $EFCC)
-    ; Sander-Cederlof notes this "supposedly makes it more random"
     LDX FAC_M4
     LDA FAC_M1
     STA FAC_M4
@@ -135,7 +106,7 @@ PATCH_SIZE = * - PATCH_RND
 ; ============================================================
 ; ROM_PATCH -- 3 bytes to write at $EFAE in ROM or LC RAM
 ; Replaces: 20 82 EB (JSR SIGN)
-; With:     4C lo hi (JMP PATCH_RND)
+; With:     4C 00 08 (JMP PATCH_RND)
 ; ============================================================
 ROM_PATCH:
     JMP PATCH_RND
