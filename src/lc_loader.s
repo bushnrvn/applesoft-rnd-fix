@@ -1,88 +1,125 @@
 ; lc_loader.s
 ; Language Card patch loader for applesoft-rnd-fix
 ;
-; Copies $D000-$FFFF from Applesoft ROM to language card RAM,
-; writes JMP $0800 at $EFAE in the LC copy, then switches
-; the language card to read mode.
+; Does everything in one pass:
+;   1. Copies $D000-$FFFF from Applesoft ROM to LC bank 2
+;   2. Writes the patch code into LC at $F5CB (documented free space)
+;   3. Writes JMP $F5CB at $EFAE in the LC copy
+;   4. Switches LC to read mode
 ;
-; After execution, calls to RND() hit the patched LC copy which
-; jumps to the replacement at $0800 (patch_lc.bin, loaded separately).
+; After execution, RND() in the LC copy jumps to $F5CB where the
+; patch code lives. No separate patch binary needs to be loaded.
 ;
-; Load at $0900. Invoke with CALL 2304 from Applesoft BASIC,
-; or BRUN LCLDR.BIN from DOS 3.3.
+; Load at $0900. Apply with CALL 2304 from DOS 3.3.
+; The loader at $0900 can be overwritten after it runs -- it is
+; no longer needed. The patch at $F5CB in LC survives for the session.
 ;
-; References:
-;   Applesoft RND at $EFAE: txbobsc.com/scsc/scdocumentor/EE8D.html
-;   LC soft switches: Understanding the Apple IIe, Jim Sather, 1983
+; Free space at $F5CB confirmed: Apple Assembly Line Vol.3 No.6, March 1983
+; LC soft switches: Understanding the Apple IIe, Jim Sather, 1983
 
 .setcpu "6502"
+.include "applesoft.inc"
 
 ; Language card soft switches
-LC_WRITE    = $C081     ; Enable LC write + ROM read (access twice to enable)
+LC_WRITE    = $C081     ; Enable LC write + ROM read (access twice)
 LC_READ     = $C080     ; Enable LC read, disable write
 
-; Patch locations
-RND_ENTRY   = $EFAE     ; Applesoft RND() entry point
-PATCH_ADDR  = $0800     ; Address of replacement RND() code (patch_lc.bin)
+PATCH_SITE  = $F5CB     ; Free space confirmed AAL March 1983
 
-; Init flag -- cleared so first RND(1) call seeds from $4E/$4F
-INIT_FLAG   = $CE
+; in LC (documented free space $F5CB-$F5FF)
+
+; RND() entry point to redirect
 
 .org $0900
 
 LOADER:
 
     ; --------------------------------------------------------
-    ; Step 1: Enable LC write while keeping ROM readable
-    ; Reading $C081 twice enables write to LC, read from ROM
+    ; Step 1: Enable LC write, ROM readable
     ; --------------------------------------------------------
     LDA LC_WRITE
     LDA LC_WRITE
 
     ; --------------------------------------------------------
-    ; Step 2: Copy $D000-$FFFF from ROM to LC RAM
-    ; Self-modifying loop advances SRC/DST address high bytes
-    ; 48 pages x 256 bytes = 12288 bytes ($3000)
+    ; Step 2: Copy $D000-$FFFF from ROM to LC
+    ; Self-modifying loop, 48 pages = 12KB
     ; --------------------------------------------------------
-    LDY #$30            ; 48 pages to copy
-    LDX #$00            ; byte offset within page
+    LDY #$30
+    LDX #$00
 
 COPY_PAGE:
-COPY_BYTE:
-SRC_LDA:    LDA $D000,X ; source: ROM (modified: high byte advances per page)
-DST_STA:    STA $D000,X ; dest:   LC  (modified: high byte advances per page)
+SRC_LDA:    LDA $D000,X
+DST_STA:    STA $D000,X
     INX
-    BNE COPY_BYTE       ; inner loop: 256 bytes per page
-
-    INC SRC_LDA+2       ; advance source to next page ($E0 -> $E1 -> ... -> $FF)
-    INC DST_STA+2       ; advance dest to next page (same)
+    BNE COPY_PAGE
+    INC SRC_LDA+2
+    INC DST_STA+2
     DEY
-    BNE COPY_PAGE       ; outer loop: 48 pages
+    BNE COPY_PAGE
 
     ; --------------------------------------------------------
-    ; Step 3: Write JMP $0800 at $EFAE in the LC copy
-    ; This redirects Applesoft RND() to our replacement
-    ; LC write is still enabled here
+    ; Step 3: Write patch code into LC at $F5CB
+    ; Reads from PATCH_DATA in regular RAM ($09xx),
+    ; writes to LC (LC write still active)
     ; --------------------------------------------------------
-    LDA #$4C            ; JMP opcode
+    LDY #$00
+WRITE_PATCH:
+    LDA PATCH_DATA,Y
+    STA PATCH_SITE,Y
+    INY
+    CPY #PATCH_DATA_SIZE
+    BNE WRITE_PATCH
+
+    ; --------------------------------------------------------
+    ; Step 4: Write JMP $F5CB at $EFAE in LC copy
+    ; Redirects RND() entry point to our patch
+    ; --------------------------------------------------------
+    LDA #$4C
     STA RND_ENTRY
-    LDA #<PATCH_ADDR    ; $00 (low byte of $0800)
+    LDA #<PATCH_SITE
     STA RND_ENTRY+1
-    LDA #>PATCH_ADDR    ; $08 (high byte of $0800)
+    LDA #>PATCH_SITE
     STA RND_ENTRY+2
 
     ; --------------------------------------------------------
-    ; Step 4: Clear INIT_FLAG so first RND(1) call seeds
-    ; from $4E/$4F (RNDL/RNDH) as intended
-    ; --------------------------------------------------------
-    LDA #$00
-    STA INIT_FLAG
-
-    ; --------------------------------------------------------
     ; Step 5: Switch LC to read mode
-    ; Reads from $D000-$FFFF now come from LC (patched copy)
-    ; RND() at $EFAE now jumps to $0800 (our replacement)
     ; --------------------------------------------------------
     LDA LC_READ
 
     RTS
+
+; --------------------------------------------------------
+; Patch code to write into LC at $F5CB
+; These are the assembled bytes of the RND replacement.
+; Assembled for $F5CB -- see patch_rom.s for the source.
+;
+; Jump targets used within this code (in the LC copy):
+;   $EFCC = byte swap entry (.1 label, negative arg path)
+;   $EFA5 = RTS for zero argument
+;   $EFBE = start of LCG multiply (positive arg path)
+; --------------------------------------------------------
+PATCH_DATA:
+    .byte $20,$82,$EB   ; JSR $EB82  (SIGN)
+    .byte $AA           ; TAX
+    .byte $10,$03       ; BPL +3     (NOT_NEG)
+    .byte $4C,$CC,$EF   ; JMP $EFCC  (negative: byte swap)
+                        ; NOT_NEG:
+    .byte $A9,$C9       ; LDA #$C9   (RNDSEED low)
+    .byte $A0,$00       ; LDY #$00   (RNDSEED high)
+    .byte $20,$F9,$EA   ; JSR $EAF9  (LOAD_FAC_YA)
+    .byte $8A           ; TXA
+    .byte $D0,$03       ; BNE +3     (NOT_ZERO)
+    .byte $4C,$A5,$EF   ; JMP $EFA5  (zero: return)
+                        ; NOT_ZERO:
+    .byte $A5,$4E       ; LDA $4E    (RNDL)
+    .byte $45,$CC       ; EOR $CC    (RNDSEED_M3)
+    .byte $85,$CC       ; STA $CC
+    .byte $A5,$4F       ; LDA $4F    (RNDH)
+    .byte $45,$CD       ; EOR $CD    (RNDSEED_M4)
+    .byte $85,$CD       ; STA $CD
+    .byte $A9,$C9       ; LDA #$C9   (RNDSEED low)
+    .byte $A0,$00       ; LDY #$00   (RNDSEED high)
+    .byte $20,$F9,$EA   ; JSR $EAF9  (LOAD_FAC_YA)
+    .byte $4C,$BE,$EF   ; JMP $EFBE  (positive: run LCG)
+
+PATCH_DATA_SIZE = * - PATCH_DATA

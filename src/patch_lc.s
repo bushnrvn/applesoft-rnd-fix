@@ -1,18 +1,22 @@
 ; patch_lc.s
 ; Applesoft BASIC RND() entropy patch -- Language Card version
 ;
-; Replacement for Applesoft RND() at $EFAE. On every positive RND(1) call,
-; mixes the monitor's RNDL/RNDH counter ($4E/$4F) into RNDSEED before
-; running the existing LCG. This is the entropy source the platform was
-; designed for, used correctly by Integer BASIC, and ignored by Applesoft.
+; Loads at $0800 in RAM. The LC loader writes JMP $0800 at $EFAE
+; in the LC copy of the ROM, redirecting RND() here.
 ;
-; RND(-n) and RND(0) behavior are preserved unchanged.
+; Structurally identical to patch_rom.s. Handles the sign check,
+; negative path, zero path, and seeding, then jumps back into the
+; original RND function at $EFBE in the LC copy to run the LCG.
+;
+; On every positive RND(1) call, RNDL ($4E) and RNDH ($4F) are XORed
+; into the RNDSEED mantissa bytes before the original LCG runs.
+; RND(-n) and RND(0) behavior are unchanged.
 ;
 ; References:
-;   S-C DocuMentor (txbobsc.com/scsc/scdocumentor/EE8D.html)
-;   Apple Assembly Line Vol.4 No.8, May 1984 (txbobsc.com/aal/1984/aal8405.html)
+;   S-C DocuMentor RND at $EFAE: txbobsc.com/scsc/scdocumentor/EE8D.html
+;   Apple Assembly Line Vol.4 No.8, May 1984: txbobsc.com/aal/1984/aal8405.html
 ;   Aldridge, J.W., Behavior Research Methods, 1987, 19(4), 397-399
-;   Integer BASIC disassembly (6502disassembly.com/a2-rom/IntegerBASIC.html)
+;   Integer BASIC disassembly: 6502disassembly.com/a2-rom/IntegerBASIC.html
 ;
 ; Verified working: AppleWin 1.32.00, Apple II+ 48K + 16K language card
 ;
@@ -22,36 +26,42 @@
 .setcpu "6502"
 .include "applesoft.inc"
 
-PATCH_ADDR = $0800     ; Language card version loads here
+PATCH_ADDR      = $0C00
+
+; Jump targets back into the original RND function in LC copy
+RND_BYTESWAP    = $EFCC     ; .1 label -- byte swap entry (negative arg path)
+RND_ZERO_RTS    = $EFA5     ; RTS.19 -- return for zero argument
+RND_LCG         = $EFBE     ; start of LCG multiply (positive arg path)
 
 .org PATCH_ADDR
 
 PATCH_RND:
+    ; Check sign of argument
+    JSR SIGN            ; A = -1, 0, or +1
+    TAX                 ; save sign in X
 
-    ; Check sign of argument (same as original)
-    JSR SIGN            ; A = -1 (neg), 0 (zero), or 1 (pos)
-    TAX                 ; preserve sign
+    ; Negative argument: jump to byte swap in original function
+    BPL NOT_NEG
+    JMP RND_BYTESWAP
 
-    ; Negative argument: use as seed, skip to byte swap
-    ; FAC still holds the argument value here
-    BMI DO_SWAP
-
-    ; Load current RNDSEED into FAC (same as original)
+NOT_NEG:
+    ; Load current RNDSEED into FAC
     LDA #<RNDSEED
     LDY #>RNDSEED
     JSR LOAD_FAC_YA
 
     ; Zero argument: return current seed unchanged
     TXA
-    BEQ DO_RETURN
+    BNE NOT_ZERO
+    JMP RND_ZERO_RTS
 
+NOT_ZERO:
     ; Positive argument: mix RNDL/RNDH into RNDSEED on every call
-    ; XOR preserves float validity and mixes in KEYIN timing entropy
     LDA RNDL
-    EOR RNDSEED_M3      ; mix low byte into mantissa byte 3
+    EOR RNDSEED_M3
     STA RNDSEED_M3
     LDA RNDH
-    EOR RNDSEED_M4      ; mix high byte into mantissa byte 4
+    EOR RNDSEED_M4
     STA RNDSEED_M4
 
     ; Reload modified seed into FAC
@@ -59,52 +69,19 @@ PATCH_RND:
     LDY #>RNDSEED
     JSR LOAD_FAC_YA
 
-DO_LCG:
-    ; Run LCG (same constants as original -- preserved for compatibility)
-    LDA #<CON_RND_1
-    LDY #>CON_RND_1
-    JSR FMULT
-    LDA #<CON_RND_2
-    LDY #>CON_RND_2
-    JSR FADD
-
-DO_SWAP:
-    ; Byte swap FAC+1 and FAC+4 (original .1 label at $EFCC)
-    LDX FAC_M4
-    LDA FAC_M1
-    STA FAC_M4
-    STX FAC_M1
-
-    ; Force positive result
-    LDA #0
-    STA FAC_SIGN
-
-    ; Store current FAC exponent as extension byte
-    LDA FAC
-    STA FAC_EXT
-
-    ; Set exponent to produce value in range [0, 1)
-    LDA #$80
-    STA FAC
-
-    ; Normalize, store result back to RNDSEED, and return
-    JSR NORMALIZE_FAC
-    LDX #<RNDSEED
-    LDY #>RNDSEED
-    JMP STORE_FAC_YX    ; stores FAC to RNDSEED and returns to caller
-
-DO_RETURN:
-    RTS
+    ; Jump into original LCG at $EFBE (LDA #CON_RND_1)
+    ; FAC has the modified seed, X has the sign (1)
+    JMP RND_LCG
 
 ; ============================================================
 ; PATCH_SIZE sanity check
 PATCH_SIZE = * - PATCH_RND
 .if PATCH_SIZE > $100
-    .error "Patch exceeds page boundary -- relocate or optimize"
+    .error "Patch exceeds page boundary"
 .endif
 
 ; ============================================================
-; ROM_PATCH -- 3 bytes to write at $EFAE in ROM or LC RAM
+; ROM_PATCH -- 3 bytes to write at $EFAE in LC RAM
 ; Replaces: 20 82 EB (JSR SIGN)
 ; With:     4C 00 08 (JMP PATCH_RND)
 ; ============================================================
