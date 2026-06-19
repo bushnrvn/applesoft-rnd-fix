@@ -10,8 +10,7 @@ These instructions are specific to the Apple II+. The IIe and IIc are not confir
 
 - Apple II+ ROM
 - A hex editor
-- An EEPROM programmer and a compatible EEPROM chip (see chip notes below)
-
+- An EEPROM programmer and a compatible EEPROM chip
 
 ## Hex editor instructions
 
