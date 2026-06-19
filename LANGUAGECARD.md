@@ -95,5 +95,5 @@ Applesoft patch will be inactive until you type FP to return to Applesoft.
 
 Tested in AppleWin 1.32.00 emulating an Apple II+ with 48K RAM and a 16K
 language card. Testing on real hardware is in progress prior to VCFMW 21
-(September 2026). If you test this before we do, please open an issue with
+(September 2026). If you test this before I do, please open an issue with
 your results.
