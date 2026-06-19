@@ -1,4 +1,4 @@
-# Language Card Patch (Runtime)
+# Language Card Loading Instructions
 
 This approach patches Applesoft in language card RAM at runtime. No hardware
 modification required. The patch must be reapplied after every cold boot.
