@@ -1,12 +1,14 @@
-# EEPROM Patch (Permanent)
+# EEPROM Patch (Apple II+)
 
 This approach burns a patched Applesoft ROM to an EEPROM and installs it in
-the Apple II. The patch is permanent and requires no software to activate on
-each boot.
+the Apple II+. The patch is permanent and requires no software to activate
+on each boot.
+
+These instructions are specific to the Apple II+. The IIe and IIc are not confirmed working or supported at this time.
 
 ## Requirements
 
-- Apple2_Plus.rom (12,288 bytes, the Apple II+ Applesoft ROM image)
+- Apple II+ ROM
 - A hex editor
 - An EEPROM programmer and a compatible EEPROM chip (see chip notes below)
 
@@ -14,12 +16,10 @@ each boot.
 
 Two regions of the ROM image are modified:
 
-**At $EFAE (file offset 0x1FAE):** The original entry point of RND() is
+**At $EFAE (file offset 0x1FAE)** The original entry point of RND() is
 redirected with a JMP to new code in unused ROM space.
 
-**At $F5CB (file offset 0x25CB):** The new seeding routine. This space is
-documented as unused by Applesoft in Apple Assembly Line Vol. 3, No. 6,
-March 1983. The routine mixes the monitor's $4E/$4F counter into RNDSEED on
+**At $F5CB (file offset 0x25CB):** The routine mixes the monitor's $4E/$4F counter into RNDSEED on
 every positive RND(1) call, then jumps back into the original LCG at $EFBE.
 
 The original RND function from $EFAE onward is preserved intact. The entry
@@ -48,7 +48,7 @@ That is JMP $F5CB (jump to the new routine).
 
 Go to file offset **0x25CB** (9675 decimal).
 
-Write the following 53 bytes exactly:
+Write the following 53 bytes:
 ```
 20 82 EB AA 10 03 4C CC EF A9 C9 A0 00 20 F9 EA
 8A D0 03 4C A5 EF A5 4E 45 CC 85 CC A5 4F 45 CD
@@ -69,21 +69,15 @@ After making both changes, verify:
 
 Save the file and burn to your EEPROM.
 
-## Chip compatibility
+## Burning the patch
 
-The Apple II+ Applesoft ROM occupies 12KB ($D000-$F7FF) spread across six
-2KB ROM chips. The two changes fall in different chips:
+How you get those bytes into
+ROM depends on what hardware you have available EPROM programmer, EEPROM
+burner, or a ROM emulator. The Apple II community has documented various
+approaches to ROM replacement on the II+, including chip-specific pinout
+considerations. Search Applefritter or the comp.sys.apple2 archives for
+current guidance on your specific setup.
 
-- Change 1 at $EFAE: in the E8 chip, which covers $E800-$EFFF.
-  Byte offset within the chip: $EFAE - $E800 = $1AE (430 decimal)
-- Change 2 at $F5CB: in the F0 chip, which covers $F000-$F7FF.
-  Byte offset within the chip: $F5CB - $F000 = $5CB (1483 decimal)
-
-If replacing individual 2KB chips rather than a full 12KB EEPROM, you need
-to replace both the E8 chip and the F0 chip.
-
-Compatible replacement chips include the 2764 (8KB EPROM) or 28C64 (8KB
-EEPROM), used to replace pairs of the original 2KB ROMs.
 
 ## Status
 
