@@ -70,8 +70,7 @@ are in [RESEARCH.md](https://codeberg.org/bushnrvn/loaded-dice-vcfmw2026/src/bra
 
 ## References
 
-The following sources support the claims in this document. Full citations and
-additional references are in [RESEARCH.md](RESEARCH.md).
+The following sources support the claims in this document. 
 
 - Apple Assembly Line, Vol. 4, No. 8, May 1984. [txbobsc.com](https://www.txbobsc.com/aal/1984/aal8405.html)
 - Aldridge, J.W. "Cautions regarding random number generation on the Apple II." Behavior Research Methods, Instruments, and Computers, 1987, 19(4), 397-399.
