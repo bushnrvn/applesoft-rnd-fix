@@ -66,7 +66,7 @@ See [BUILD.md](BUILD.md) for details.
 ## Background
 
 Full research notes, primary source disassembly evidence, and historical context
-are in [RESEARCH.md](RESEARCH.md).
+are in [RESEARCH.md](https://codeberg.org/bushnrvn/loaded-dice-vcfmw2026/src/branch/main/RESEARCH.md).
 
 ## References
 
