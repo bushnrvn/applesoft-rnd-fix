@@ -45,8 +45,7 @@ and all existing Applesoft programs work unchanged.
 ### EEPROM Replacement
 
 Apply the binary patch to your Applesoft ROM image and burn to a compatible EEPROM.
-See [EEPROM.md](EEPROM.md) for chip compatibility and burning instructions.
-
+See [EEPROM.md](EEPROM.md)
 ### Language Card (Runtime Patch)
 
 Load the provided binary from DOS 3.3 or ProDOS at startup to apply the patch in
