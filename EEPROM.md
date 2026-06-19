@@ -43,31 +43,6 @@ Write the following 53 bytes:
 EA EA EA EA EA
 ```
 
-The final nine EA bytes are NOP padding to fill the unused space through $F5FF.
-The EA bytes within the code (at positions 16 and 41 in the sequence above)
-are the high byte of the JSR $EAF9 (LOAD_FAC_YA) instruction, not NOPs.
-
-### Verification
-
-After making both changes, verify:
-
-- Offset 0x1FAE: `4C CB F5`
-- Offset 0x25CB: `20 82 EB AA 10 03 4C CC EF`
-
 Save the file and burn to your EEPROM.
 
-## Burning the patch
 
-How you get those bytes into
-ROM depends on what hardware you have available EPROM programmer, EEPROM
-burner, or a ROM emulator. The Apple II community has documented various
-approaches to ROM replacement on the II+, including chip-specific pinout
-considerations. Search Applefritter or the comp.sys.apple2 archives for
-current guidance on your specific setup.
-
-
-## Status
-
-The ROM patch source assembles cleanly and the byte offsets have been verified.
-Testing on real hardware is in progress prior to VCFMW 21 (September 2026).
-If you test this before we do, please open an issue with your results.
