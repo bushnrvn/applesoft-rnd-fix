@@ -12,19 +12,6 @@ These instructions are specific to the Apple II+. The IIe and IIc are not confir
 - A hex editor
 - An EEPROM programmer and a compatible EEPROM chip (see chip notes below)
 
-## How it works
-
-Two regions of the ROM image are modified:
-
-**At $EFAE (file offset 0x1FAE)** The original entry point of RND() is
-redirected with a JMP to new code in unused ROM space.
-
-**At $F5CB (file offset 0x25CB):** The routine mixes the monitor's $4E/$4F counter into RNDSEED on
-every positive RND(1) call, then jumps back into the original LCG at $EFBE.
-
-The original RND function from $EFAE onward is preserved intact. The entry
-point is the only thing changed. Programs that want a deterministic sequence
-can still call the original directly at $EFB1 via CALL 61361.
 
 ## Hex editor instructions
 
