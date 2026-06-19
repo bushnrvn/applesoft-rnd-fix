@@ -1,4 +1,4 @@
-# Language Card Loading Instructions
+# Language Card Patch (Runtime)
 
 This approach patches Applesoft in language card RAM at runtime. No hardware
 modification required. The patch must be reapplied after every cold boot.
@@ -8,7 +8,7 @@ modification required. The patch must be reapplied after every cold boot.
 - Apple II or II+ with a 16K language card installed in slot 0, or any Apple
   IIe or IIc (language card RAM is built in on these models)
 - DOS 3.3
-- The built binaries: `patch_lc.bin` and `lc_loader.bin`
+- The built binary: `lc_loader.bin`
 
 Note: ProDOS compatibility is untested. ProDOS uses the language card for its
 own code and the patch loader may conflict with it. DOS 3.3 is recommended.
@@ -20,8 +20,9 @@ equivalent. Set the file type to BIN and the load address as shown:
 
 | File | DOS name | Type | Load address |
 |---|---|---|---|
-| `build/patch_lc.bin` | `PATCH_LC.BIN` | BIN | $0800 |
 | `build/lc_loader.bin` | `LC_LOADER.BIN` | BIN | $0900 |
+
+The patch code is embedded in `lc_loader.bin`. No separate patch binary is needed.
 
 ## Applying the patch
 
@@ -29,22 +30,21 @@ Boot to DOS 3.3 with the disk containing the above files. At the Applesoft
 prompt, type these three commands:
 
 ```
-]BLOAD PATCH_LC.BIN,A$800
 ]BLOAD LC_LOADER.BIN,A$900
 ]CALL 2304
 ```
 
-The patch is now active for this session.
+That is all. The patch is now active for this session.
 
 ## What the loader does
 
 1. Enables language card write mode while keeping ROM readable
 2. Copies $D000-$FFFF (all of Applesoft and the monitor ROM) from ROM to LC RAM
-3. Writes `JMP $0800` at $EFAE in the LC copy
-4. Clears the init flag at $CE
+3. Writes the patch code into the LC at $F5CB (documented free space)
+4. Writes `JMP $F5CB` at $EFAE in the LC copy
 5. Switches the language card to read mode
 
-After CALL 2304 returns, RND() seeds from $4E/$4F on the first positive call.
+After CALL 2304 returns, RND() seeds from $4E/$4F on every positive call.
 RND(-n) and RND(0) behavior are unchanged.
 
 ## Verifying the patch
@@ -56,24 +56,28 @@ RND(-n) and RND(0) behavior are unchanged.
 Without the patch: returns `0.973136996` on every cold boot.
 With the patch: returns a different value each session.
 
-To confirm the seeding path ran:
+To confirm the patch is active, check PEEK(78) and PEEK(79) before and after
+calling RND(1). The values should differ, reflecting the counter advancing
+between calls:
 
 ```
-]PRINT PEEK(206)
+]PRINT PEEK(78), PEEK(79)
+]PRINT RND(1)
+]PRINT PEEK(78), PEEK(79)
 ```
 
-Returns 255 after the first RND(1) call if the patch is active. Returns 0 if
-the patch has not been applied or the first RND(1) call has not yet occurred.
+If the counter values changed between the two PRINT PEEK lines, the patch is
+reading $4E/$4F as intended.
 
 ## Notes
 
 The patch persists until the next cold boot. On warm reset (Ctrl-Reset) the
 language card copy remains active and the patch continues to work.
 
-Load addresses $0800 and $0900 must be free when the patch is applied. Both
-are safe in a standard DOS 3.3 environment before any programs are loaded. Do
-not run a BASIC program before applying the patch -- BASIC program storage
-begins at $0800 and would overwrite the patch code.
+Load address $0900 must be free when the patch is applied. It is safe in a
+standard DOS 3.3 environment before any programs are loaded. The patch code
+lives in the LC at $F5CB and survives for the entire session regardless of
+what happens in regular RAM.
 
 **DOS 3.3 and Integer BASIC**
 

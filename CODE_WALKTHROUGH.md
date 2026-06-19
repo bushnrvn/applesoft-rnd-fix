@@ -8,15 +8,16 @@ want to understand what the code is doing and why, read this first.
 ## Background
 
 Applesoft's RND() function lives at $EFAE in ROM. You cannot modify ROM directly,
-so the patch works in two stages. First, a small replacement function is loaded
-into regular RAM at $0800. Second, a loader copies the entire Applesoft ROM into
-language card RAM, writes a three-byte redirect at $EFAE in that copy, and switches
-the machine to read from the language card instead of ROM. After that, every call
-to RND() hits the redirect and jumps to the replacement.
+so the language card patch works by copying the entire Applesoft ROM into language
+card RAM, writing a redirect at $EFAE in that copy, and writing the replacement
+code into free space in the LC at $F5CB. After the loader runs, Applesoft executes
+from the LC copy and every call to RND() hits the redirect at $EFAE, which jumps
+to the replacement code at $F5CB.
 
-On every positive
-RND(1) call, the patch reads the monitor's timing counter at $4E and $4F and mixes those
-values into the seed before running the generator. RND(-n) and RND(0) run the original Applesoft code without modification.
+The replacement handles the sign check, negative path, and zero path, then mixes
+the monitor's timing counter at $4E and $4F into the seed before jumping back into
+the original LCG in the LC copy. The original RND function handles everything from
+the LCG forward.
 
 ---
 
@@ -25,47 +26,54 @@ values into the seed before running the generator. RND(-n) and RND(0) run the or
 The KEYIN routine in the monitor ROM increments $4E on every iteration of its
 keyboard polling loop, not on every keypress. The counter advances thousands of
 times per second while the machine is sitting at a prompt. A keypress just exits
-the loop. By the time you have typed a few commands and called RND(), the counter
+the loop. By the time you have typed a command and called RND(), the counter
 reflects how long the machine spent in that polling loop, which varies from session
-to session based on your timing. That variation is the entropy.
+to session. That variation is the entropy.
 
 ---
 
-## patch_lc.s: The replacement RND() function
+## patch_rom.s and patch_lc.s: The replacement RND() stub
 
-Loads at $0800. This runs every time your program calls RND().
+Both files contain the same 44 bytes of logic. patch_rom.s assembles to $F5CB
+for the EEPROM approach. patch_lc.s assembles to $F5CB as well, but its bytes
+are embedded directly in lc_loader.s as a data table rather than loaded as a
+separate binary.
 
-### Checking the argument
+The stub handles three cases.
+
+### Negative argument
 
 ```asm
 JSR SIGN
 TAX
-BMI DO_SWAP
+BPL NOT_NEG
+JMP $EFCC
 ```
 
-SIGN is Applesoft's own routine at $EB82. It reads whatever value is in the
-floating point accumulator (FAC), the argument you passed to RND(), and
-returns -1, 0, or +1 in the A register. Next save that in X.
+SIGN is Applesoft's own routine at $EB82. It reads the argument from FAC and
+returns -1, 0, or +1 in A. We save that in X. If the argument was negative,
+BPL falls through to the JMP which goes to $EFCC in the LC copy. That is the
+original byte swap entry point. The argument in FAC gets byte-swapped,
+normalized, and stored as the new seed. No change to this behavior.
 
-If the argument was negative, BMI branches immediately to DO_SWAP. This is the
-RND(-n) seeding path. The argument in FAC gets byte-swapped, normalized, and
-stored as the new seed. No changes to this behavior.
+BMI cannot reach $EFCC from $F5CB (too far for a relative branch), so we use
+BPL to skip over a JMP instead.
 
-### Loading the current seed
+### Zero argument
 
 ```asm
 LDA #<RNDSEED
 LDY #>RNDSEED
 JSR LOAD_FAC_YA
 TXA
-BEQ DO_RETURN
+BNE NOT_ZERO
+JMP $EFA5
 ```
 
-RNDSEED is the 5-byte floating point seed at $C9 through $CD. First load it into
-FAC. If the argument was zero, branch to
-DO_RETURN and give back whatever is in FAC. That is the last generated value.
+Load RNDSEED ($C9) into FAC. If the argument was zero, jump to $EFA5 in the
+LC copy, which is an RTS. That returns the current seed value unchanged.
 
-### Mixing in $4E and $4F
+### Positive argument: mixing in $4E and $4F
 
 ```asm
 LDA RNDL
@@ -78,58 +86,30 @@ STA RNDSEED_M4
 LDA #<RNDSEED
 LDY #>RNDSEED
 JSR LOAD_FAC_YA
+
+JMP $EFBE
 ```
 
-If RND() is positive, read RNDL ($4E) and RNDH ($4F) and XOR each byte
-into the corresponding mantissa byte of RNDSEED. XOR modifies the seed value
-without invalidating the floating point format. Then reload the modified
-seed into FAC before running the LCG.
+Read RNDL ($4E) and RNDH ($4F) and XOR each byte into the corresponding
+mantissa byte of RNDSEED. XOR modifies the seed value without invalidating
+the floating point format. Reload the modified seed into FAC, then jump to
+$EFBE in the LC copy. That is the start of the original LCG, which runs the
+multiply, add, byte swap, normalize, store, and return, all from the
+unmodified LC copy of Applesoft.
 
-The counter reflects current timing at
+This happens on every positive call. The counter reflects current timing at
 the moment of each call. In interactive use with keyboard activity between
 calls, the values will vary. In a tight loop with no keyboard activity, the
 counter may not change much between calls since KEYIN only runs while waiting
 for input.
 
-### The LCG
-
-```asm
-JSR FMULT   ; FAC = FAC * CON_RND_1
-JSR FADD    ; FAC = FAC + CON_RND_2
-```
-
-The original Applesoft linear congruential generator. Changing the original constants would break programs that
-depend on RND(-n) producing a specific sequence from a known seed.
-
-### The byte swap and return
-
-```asm
-LDX FAC_M4
-LDA FAC_M1
-STA FAC_M4
-STX FAC_M1
-LDA #0
-STA FAC_SIGN
-LDA FAC
-STA FAC_EXT
-LDA #$80
-STA FAC
-JSR NORMALIZE_FAC
-LDX #<RNDSEED
-LDY #>RNDSEED
-JMP STORE_FAC_YX
-```
-
-Verbatim from the original Applesoft .1 label at $EFCC. Swap the middle two
-bytes of FAC, force the result positive, set the exponent to $80 to produce
-a value less than 1.0, normalize, and store back to RNDSEED. STORE_FAC_YX
-handles the return to the caller.
-
 ---
 
 ## lc_loader.s: The language card loader
 
-Loads at $0900. Run once to apply the patch. Reapply after every cold boot.
+Loads at $0900. Run once with CALL 2304. After it returns, the patch is active
+for the session. The loader code at $0900 can be overwritten after that. It is not
+needed again. The patch code lives in the LC at $F5CB and survives for the session.
 
 ### Enabling LC write
 
@@ -139,8 +119,7 @@ LDA $C081
 ```
 
 Reading $C081 twice sets the write latch. After this, writes to $D000-$FFFF
-go to language card RAM while reads still come from ROM. The double-read
-requirement is intentional hardware design to prevent accidental activation.
+go to language card RAM while reads still come from ROM.
 
 ### Copying ROM to the language card
 
@@ -158,57 +137,66 @@ DST_STA: STA $D000,X
     BNE COPY_PAGE
 ```
 
-This copies 48 pages (12,288 bytes) from $D000 through $FFFF, covering all of Applesoft and the monitor ROM.
+Copies 48 pages (12,288 bytes) from $D000 through $FFFF into LC bank 2.
+Self-modifying code: INC SRC_LDA+2 increments the high byte of the LDA
+instruction's operand, advancing the source address from $D0xx through $FFxx
+one page at a time. The STA does the same for the destination. This covers
+all of Applesoft and the monitor ROM without needing a zero page pointer.
 
-INC SRC_LDA+2 increments the high byte of
-the LDA instruction's operand. The first time through the outer loop, LDA reads
-from $D0xx. After the increment it reads from $D1xx, then $D2xx, through $FFxx.
-The STA works the same way. This walks through all 48 pages without needing a
-zero page pointer.
+We copy all of $D000-$FFFF because switching the LC to read mode affects the
+entire range. Copying only part of it would leave uninitialized RAM where
+Applesoft code needs to run.
 
-The patch copies all of $D000-$FFFF rather than just the area around $EFAE because
-switching the language card to read mode affects the entire range. If only
-part of it were copied, Applesoft would try to execute from uninitialized RAM
-the moment it returned from the loader.
+### Writing the patch code into the LC
+
+```asm
+LDY #$00
+WRITE_PATCH:
+    LDA PATCH_DATA,Y
+    STA $F5CB,Y
+    INY
+    CPY #PATCH_DATA_SIZE
+    BNE WRITE_PATCH
+```
+
+Writes 44 bytes from the PATCH_DATA table into the LC at $F5CB. LC write is
+still active, so the STAs go to LC RAM. PATCH_DATA is in regular RAM at
+$09xx, so the LDAs read from there. $F5CB-$F5FF is documented unused space
+in the Applesoft ROM (Apple Assembly Line, March 1983).
 
 ### Writing the hook
 
 ```asm
 LDA #$4C
 STA $EFAE
-LDA #$00
+LDA #$CB
 STA $EFAF
-LDA #$08
+LDA #$F5
 STA $EFB0
 ```
 
-LC write is still active here, so these STA go to language card RAM. $4C
-$00 $08 is JMP $0800 in 6502 machine code. This replaces the first three bytes
-of the RND function in the LC copy with a jump to
-the replacement. 
+Writes JMP $F5CB at $EFAE in the LC copy. LC write is still active.
+The original ROM is untouched.
 
-### Switching to language card read mode
+### Switching to LC read mode
 
 ```asm
 LDA $C080
 RTS
 ```
 
-A single read of $C080 clears the write latch and switches reads from
-$D000-$FFFF to come from language card RAM. From this point, Applesoft runs
-from the patched copy. RND() at $EFAE now contains JMP $0800.
+A single read of $C080 clears the write latch and switches $D000-$FFFF to
+read from LC instead of ROM. RND() at $EFAE in the LC now contains JMP $F5CB.
 
 ---
 
 ## What was not changed
 
-RND(-n) takes the BMI DO_SWAP branch before any of the new code runs. The
-negative argument path goes through the original byte swap unchanged. Programs
-that rely on RND(-n) for reproducible sequences work the same way they always have.
-
-RND(0) takes the BEQ DO_RETURN branch before the $4E/$4F mixing code runs.
-
-The LCG algorithm itself is unchanged.
+The negative argument path goes through the original byte swap in the LC copy
+unchanged. The zero argument path returns the current seed unchanged. The LCG
+algorithm, the broken constants, the byte swap, the normalization, the store --
+all of it runs from the original LC copy of Applesoft. The only thing the patch
+changes is what the seed contains before the LCG runs.
 
 ---
 
