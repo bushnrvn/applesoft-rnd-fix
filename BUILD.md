@@ -39,10 +39,6 @@ language card RAM, writes the patch code into the LC at $F5CB, writes JMP $F5CB 
 language card to read mode. After execution, Applesoft's RND() runs from the patched
 LC copy rather than ROM.
 
-## Status
-
-The source assembles cleanly and the patch has been tested and verified in
-AppleWin 1.32.00 emulating an Apple II+ with 48K RAM and a 16K language card.
 
 Verification:
 - Cold boot without patch: `PRINT RND(1)` returns `0.973136996` on every boot
