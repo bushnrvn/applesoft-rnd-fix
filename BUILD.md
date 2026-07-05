@@ -1,4 +1,4 @@
-# Building from Source
+
 
 ## Requirements
 
@@ -14,7 +14,7 @@ On Debian/Ubuntu:
 ```
 apt install cc65
 ```
-
+## Build:
 ```
 make
 ```
