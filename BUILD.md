@@ -15,8 +15,6 @@ On Debian/Ubuntu:
 apt install cc65
 ```
 
-## Building
-
 ```
 make
 ```
