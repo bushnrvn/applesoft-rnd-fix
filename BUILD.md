@@ -23,10 +23,8 @@ make
 
 This produces two binaries in `build/`:
 
-- `patch_lc.bin` — the patch stub, assembled to $F5CB (embedded in lc_loader.bin, not loaded separately)
-- `lc_loader.bin` — the language card loader, assembled to load at $0900
-
-## Binaries
+- `patch_lc.bin`
+- `lc_loader.bin`
 
 `patch_lc.bin` is a replacement for Applesoft's RND() entry
 point at $EFAE. On every positive RND(1) call, it reads the
