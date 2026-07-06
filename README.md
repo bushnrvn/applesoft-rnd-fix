@@ -3,8 +3,6 @@
 A ROM patch for Applesoft BASIC that seeds `RND()` from the monitor's built-in
 entropy counter at `$4E` and `$4F`.
 
-## The Problem
-
 The Apple II monitor ROM continuously increments a counter at `$4E` (RNDL)
 and `$4F` (RNDH) while waiting for keyboard input. These locations were named and
 designed as a random seed source. Integer BASIC used them in this way. When Applesoft replaced Integer BASIC, it stopped doing so.
@@ -17,25 +15,13 @@ psychology study. A one-line software workaround has been published since 1987, 
 requires every programmer to know about it and apply it correctly. This patch makes
 it unnecessary.
 
-## What the Patch Does
-
-On every call to `RND(1)`, the patched function reads the
-current value of `$4E` and `$4F` and uses it to seed the generator before
-producing a number. Because the KEYIN routine has been incrementing that counter
-since power-on, the value it holds reflects elapsed time in a way that varies
-enough between sessions to produce a different starting sequence each run.
-Subsequent calls proceed normally.
-
-Existing behavior is fully preserved. `RND(-n)` with any negative argument still
-sets a fixed deterministic seed, `RND(0)` still returns the last generated value,
-and all existing Applesoft programs work unchanged.
-
 ## Usage
 
 ### EEPROM Replacement
 
-Apply the binary patch to your Applesoft ROM image and burn to a compatible EEPROM.
+Apply the binary patch to your Applesoft ROM image.
 See [EEPROM.md](EEPROM.md)
+
 ### Language Card (Runtime Patch)
 
 Load the provided binary from DOS 3.3 at startup to apply the patch in
