@@ -19,18 +19,14 @@ it unnecessary.
 
 ### EEPROM Replacement
 
-Apply the binary patch to your Applesoft ROM image.
 See [EEPROM.md](EEPROM.md)
 
 ### Language Card (Runtime Patch)
 
-Load the provided binary from DOS 3.3 at startup to apply the patch in
-RAM. See [LANGUAGECARD.md](LANGUAGECARD.md) for
+See [LANGUAGECARD.md](LANGUAGECARD.md) for
 instructions.
 
 ## Building from Source
-
-Requires [ca65](https://cc65.github.io/doc/ca65.html) and an Applesoft ROM image.
 
 See [BUILD.md](BUILD.md) for details.
 
