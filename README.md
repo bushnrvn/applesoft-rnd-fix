@@ -32,10 +32,6 @@ instructions.
 
 Requires [ca65](https://cc65.github.io/doc/ca65.html) and an Applesoft ROM image.
 
-```
-make
-```
-
 See [BUILD.md](BUILD.md) for details.
 
 ## Background
@@ -43,14 +39,6 @@ See [BUILD.md](BUILD.md) for details.
 Full research notes, primary source disassembly evidence, and historical context
 are in [RESEARCH.md](https://codeberg.org/bushnrvn/loaded-dice-vcfmw2026/src/branch/main/RESEARCH.md).
 
-## References
-
-The following sources support the claims in this document. 
-
-- Apple Assembly Line, Vol. 4, No. 8, May 1984. [txbobsc.com](https://www.txbobsc.com/aal/1984/aal8405.html)
-- Aldridge, J.W. "Cautions regarding random number generation on the Apple II." Behavior Research Methods, Instruments, and Computers, 1987, 19(4), 397-399.
-- Applesoft disassembly at $EFAE. [txbobsc.com](https://www.txbobsc.com/scsc/scdocumentor/EE8D.html)
-- Integer BASIC disassembly at $EF4E. [6502disassembly.com](https://6502disassembly.com/a2-rom/IntegerBASIC.html)
 
 ## Licenses
 
