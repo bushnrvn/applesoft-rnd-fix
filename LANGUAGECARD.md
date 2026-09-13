@@ -40,7 +40,7 @@ That is all. The patch is now active for this session.
 
 1. Enables language card write mode while keeping ROM readable
 2. Copies $D000-$FFFF (all of Applesoft and the monitor ROM) from ROM to LC RAM
-3. Writes the patch code into the LC at $F5CB (documented free space)
+3. Writes the patch code into the LC at $F5CB
 4. Writes `JMP $F5CB` at $EFAE in the LC copy
 5. Switches the language card to read mode
 
